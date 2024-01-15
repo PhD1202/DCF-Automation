@@ -16,43 +16,84 @@ def get_balance_sheet(ticker):
     ticker_data = yf.Ticker(ticker)
     return ticker_data.balance_sheet
 
-def get_cash_flow(ticker):
-    ticker_data = yf.Ticker(ticker)
-    return ticker_data.cash_flow
+def get_cashflow_statement(ticker):
 
-def calculate_and_plot_fcf(stock_ticker):
-    # Fetch historical data for the stock
-    stock_data = yf.Ticker(stock_ticker)
+    url = f'https://stockanalysis.com/stocks/{ticker}/financials/cash-flow-statement/'
+    page = requests.get(url)
+    soup = BeautifulSoup(page.text, 'html')
 
-    # Get financials
-    financials = stock_data.financials
-    cash_flow = stock_data.cashflow
+    cash_flow_table = soup.find('table', class_ = "w-full border-separate border-spacing-0 whitespace-nowrap")
 
-    # Check if financials and cash flow data are available
-    if financials is None or cash_flow is None:
-        print(f"Financial data for {stock_ticker} is not available.")
-        return
+    # Extract the column headers
+    headers = []
+    for header in cash_flow_table.find_all('th'):
+        headers.append(header.text.strip())
 
-    # Calculate Free Cash Flow (FCF) = Operating Cash Flow - Capital Expenditures
-    fcf = cash_flow.loc['Total Cash From Operating Activities'] - cash_flow.loc['Capital Expenditures']
+    # Extract the table rows
+    rows = []
+    for row in cash_flow_table.find_all('tr')[1:]:  # Skipping the header row
+        cells = row.find_all('td')
+        row_data = [cell.text.strip() for cell in cells]
+        rows.append(row_data)
 
-    # Select last 10 years of FCF data
-    fcf_last_10_years = fcf.iloc[:10]
+    # Convert the data into a DataFrame
+    cash_flow_statement = pd.DataFrame(rows, columns=headers)
+    cash_flow_statement = cash_flow_statement.drop('2013 - 1992', axis=1)
+    return cash_flow_statement
 
-    # Plotting the Free Cash Flow
-    plt.figure(figsize=(10, 6))
-    plt.plot(fcf_last_10_years.index, fcf_last_10_years, marker='o')
-    plt.title(f"Free Cash Flow of {stock_ticker} over the Last 10 Years")
-    plt.xlabel("Year")
-    plt.ylabel("Free Cash Flow (in millions)")
-    plt.grid(True)
-    plt.show()
+def get_fcf(ticker):
+    cash_flow_table = get_cashflow_statement(ticker)
 
-    return fcf_last_10_years
+    # Assuming 'Free Cash Flow' is in the first column, find the row index
+    fcf_row = cash_flow_table[cash_flow_table.iloc[:, 0] == 'Free Cash Flow']
 
-# Example usage
-stock_ticker = "AAPL"  # Example: Apple Inc.
-calculate_and_plot_fcf(stock_ticker)
+    return fcf_row
+
+def mean_fcf(ticker):
+    
+    fcf_row = get_fcf(ticker)
+    fcf_numeric = fcf_row.iloc[0, 1:]
+
+    fcf_cleaned = []
+    for value in fcf_numeric:
+            # Remove any formatting and convert to float
+            try:
+                # Remove commas, dollar signs, and handle negative numbers in parentheses
+                value_clean = value.replace(',', '').replace('$', '').replace('(', '-').replace(')', '')
+                fcf_cleaned.append(float(value_clean))
+            except ValueError:
+                # If the value cannot be converted to float, ignore it
+                continue
+    
+    return np.mean(fcf_cleaned) if fcf_cleaned else "No numeric data found"
+
+
+def get_net_income(ticker):
+    cash_flow_table = get_cashflow_statement(ticker)
+    net_income = cash_flow_table[cash_flow_table.iloc[:, 0] == 'Net Income']
+    return net_income
+
+def avg_growth_rate_income(ticker):
+    net_income = get_net_income(ticker)
+    
+    # Remove the 'Net Income' label and convert the data to numeric
+    net_income = net_income.iloc[:, 1:].apply(lambda x: pd.to_numeric(x.str.replace(',', ''), errors='coerce'))
+    
+    #Ensure the data is in the correct order (if needed)
+    net_income = net_income.iloc[:, ::-1]
+    
+    # Calculate yearly growth rates
+    yearly_growth_rates = net_income.pct_change(axis=1)
+
+    # Calculate average growth rate
+    average_growth_rate = yearly_growth_rates.mean(axis=1).iloc[0]
+    return average_growth_rate 
+
+
+ticker = "AAPL"
+
+
+
 
 def main():
     pass
